@@ -1,0 +1,61 @@
+# Default parameters for yolo_ros task nodes.
+# Override via launch arguments or a node-specific YAML block.
+
+/yolos_detector:
+  ros__parameters:
+    model_path: ""            # required, absolute path to the ONNX model
+    labels_path: ""           # optional, one class name per line
+    use_gpu: false            # requires an ONNX Runtime GPU build
+    conf_threshold: 0.4
+    nms_threshold: 0.45
+    max_detections: 300
+    input_size: 0             # square model input for dynamic exports; 0 = auto
+    num_threads: 0            # 0 lets ONNX Runtime decide
+    publish_debug_image: true
+    publish_timing: false
+
+/yolos_segmentor:
+  ros__parameters:
+    model_path: ""
+    labels_path: ""
+    use_gpu: false
+    conf_threshold: 0.4
+    nms_threshold: 0.45
+    max_detections: 300
+    input_size: 0             # square model input for dynamic exports; 0 = auto
+    publish_debug_image: true
+    publish_timing: false
+
+/yolos_pose:
+  ros__parameters:
+    model_path: ""
+    labels_path: ""
+    use_gpu: false
+    conf_threshold: 0.4
+    nms_threshold: 0.5
+    keypoint_threshold: 0.3
+    max_detections: 300
+    input_size: 0             # square model input for dynamic exports; 0 = auto
+    publish_debug_image: true
+    publish_timing: false
+
+/yolos_obb:
+  ros__parameters:
+    model_path: ""
+    labels_path: ""
+    use_gpu: false
+    conf_threshold: 0.4
+    nms_threshold: 0.45
+    max_detections: 300
+    input_size: 0             # square model input for dynamic exports; 0 = auto
+    publish_debug_image: true
+    publish_timing: false
+
+/yolos_classifier:
+  ros__parameters:
+    model_path: ""
+    labels_path: ""
+    use_gpu: false
+    input_size: 0             # square model input for dynamic exports; 0 = auto
+    publish_debug_image: true
+    publish_timing: false

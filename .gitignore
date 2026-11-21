@@ -1,0 +1,24 @@
+# colcon / build artefacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+
+# Model binaries and third-party runtimes (see README for how to obtain them)
+models/*.onnx
+third_party/onnxruntime/
+
+# Local data / screenshots
+benchmark/*.log
+*.pdf
+
+# Personal interview preparation material (kept out of the repository)
+面试备战学习手册.md
+A项目_yolo_ros_远程验收报告.html
+
+# Editors
+.vscode/
+.idea/
