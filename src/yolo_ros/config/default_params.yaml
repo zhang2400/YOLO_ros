@@ -12,6 +12,7 @@
     input_size: 0             # square model input for dynamic exports; 0 = auto
     num_threads: 0            # 0 lets ONNX Runtime decide
     publish_debug_image: true
+    debug_image_rate: 5.0      # debug image Hz; <= 0 = every frame
     publish_timing: false
 
 /yolos_segmentor:
@@ -24,6 +25,7 @@
     max_detections: 300
     input_size: 0             # square model input for dynamic exports; 0 = auto
     publish_debug_image: true
+    debug_image_rate: 5.0      # debug image Hz; <= 0 = every frame
     publish_timing: false
 
 /yolos_pose:
@@ -37,6 +39,7 @@
     max_detections: 300
     input_size: 0             # square model input for dynamic exports; 0 = auto
     publish_debug_image: true
+    debug_image_rate: 5.0      # debug image Hz; <= 0 = every frame
     publish_timing: false
 
 /yolos_obb:
@@ -49,6 +52,7 @@
     max_detections: 300
     input_size: 0             # square model input for dynamic exports; 0 = auto
     publish_debug_image: true
+    debug_image_rate: 5.0      # debug image Hz; <= 0 = every frame
     publish_timing: false
 
 /yolos_classifier:
@@ -58,4 +62,5 @@
     use_gpu: false
     input_size: 0             # square model input for dynamic exports; 0 = auto
     publish_debug_image: true
+    debug_image_rate: 5.0      # debug image Hz; <= 0 = every frame
     publish_timing: false

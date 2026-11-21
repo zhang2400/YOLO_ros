@@ -26,6 +26,11 @@ CSV=""
 DOMAIN=""
 MODEL="$ROOT/models/yolo11n.onnx"
 IMAGE="$ROOT/test_data/dog_bike_car.jpg"
+CAMERA=-1
+WIDTH=640
+HEIGHT=480
+SOURCE_FPS=0
+DEBUG_IMAGE=true
 LABELS="$ROOT/data/coco.names"
 TOPIC=/yolos_detector
 
@@ -41,6 +46,11 @@ while [[ $# -gt 0 ]]; do
     --domain) DOMAIN="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --image) IMAGE="$2"; shift 2 ;;
+    --camera) CAMERA="$2"; shift 2 ;;
+    --width) WIDTH="$2"; shift 2 ;;
+    --height) HEIGHT="$2"; shift 2 ;;
+    --source-fps) SOURCE_FPS="$2"; shift 2 ;;
+    --no-debug) DEBUG_IMAGE=false; shift ;;
     --labels) LABELS="$2"; shift 2 ;;
     --topic) TOPIC="$2"; shift 2 ;;
     -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
@@ -79,6 +89,7 @@ ros2 run yolo_ros yolos_detector_node --ros-args \
   -p model_path:="$MODEL" \
   -p labels_path:="$LABELS" \
   -p num_threads:="$THREADS" \
+  -p publish_debug_image:="$DEBUG_IMAGE" \
   -p publish_timing:=true > /tmp/yolo_bench_node.log 2>&1 &
 NODE_PID=$!
 sleep 2
@@ -86,12 +97,22 @@ sleep 2
 ros2 lifecycle set "$TOPIC" configure >/dev/null
 ros2 lifecycle set "$TOPIC" activate >/dev/null
 
-python3 "$ROOT/tools/image_stream.py" \
-  --image "$IMAGE" --topic "$TOPIC/image_raw" \
-  --rate "$RATE" > /tmp/yolo_bench_publisher.log 2>&1 &
+if [[ "$CAMERA" -ge 0 ]]; then
+  # cam2image (C++) avoids the Python GIL contention that throttles large
+  # sensor_msgs/Image publishing; ros-humble-image-tools provides it.
+  ros2 run image_tools cam2image --ros-args \
+    -p device_id:="$CAMERA" -p width:="$WIDTH" -p height:="$HEIGHT" \
+    -p frequency:="$(printf '%.1f' "$RATE")" -r image:="$TOPIC/image_raw" \
+    > /tmp/yolo_bench_publisher.log 2>&1 &
+else
+  python3 "$ROOT/tools/image_stream.py" \
+    --image "$IMAGE" --topic "$TOPIC/image_raw" \
+    --rate "$RATE" --stats > /tmp/yolo_bench_publisher.log 2>&1 &
+fi
 PUB_PID=$!
 sleep 1
 
 python3 "$ROOT/tools/bench_timing.py" \
   --topic "$TOPIC/timing" --samples "$SAMPLES" --warmup "$WARMUP" \
+  --e2e-topic "$TOPIC/detections" --source-fps "$SOURCE_FPS" \
   --timeout "$TIMEOUT" --label "$LABEL" ${CSV:+--csv "$CSV"}

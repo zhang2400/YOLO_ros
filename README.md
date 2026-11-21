@@ -42,7 +42,8 @@ test_data/            测试图片
 ## 编译
 
 ```bash
-sudo apt install ros-humble-vision-msgs ros-humble-cv-bridge ros-humble-image-transport
+sudo apt install ros-humble-vision-msgs ros-humble-cv-bridge ros-humble-image-transport \
+  ros-humble-image-tools
 cd <repo>
 source /opt/ros/humble/setup.bash
 colcon build --base-paths src --packages-select yolo_ros \
@@ -101,6 +102,25 @@ ros2 topic echo /yolos_detector/timing      # 需要 publish_timing:=true
 
 或使用 Web UI：`python3 tools/yolo_ui.py`，浏览器打开 `http://localhost:8080`。
 
+### 摄像头实流
+
+```bash
+# 先确认设备号（内置摄像头常同时暴露 /dev/video0..2，且可能重新编号）
+ls /dev/video*
+
+# 用 C++ 的 cam2image 推流，避免 Python 采集线程的 GIL 竞争
+ros2 run image_tools cam2image --ros-args \
+  -p device_id:=0 -p width:=640 -p height:=480 -p frequency:=30.0 \
+  -r image:=/yolos_detector/image_raw
+```
+
+节点已在 lifecycle 激活后订阅 `~/image_raw`，无需重启。无 `image_tools` 时可用
+`tools/image_stream.py --camera 0`（Python 采集，帧率较低）。
+
+调试预览默认限制到 5 Hz（`debug_image_rate`）。在 DDS 大图吞吐差的机器上，逐帧发布
+640×480 调试图会比推理本身更耗时；关掉预览（`publish_debug_image:=false`）可把节点
+吞吐从约 3 FPS 提到约 10 FPS。
+
 关键参数（`config/default_params.yaml`）：
 
 | 参数 | 说明 |
@@ -110,6 +130,7 @@ ros2 topic echo /yolos_detector/timing      # 需要 publish_timing:=true
 | `num_threads` | ORT intra-op 线程数，0 = 自动 |
 | `input_size` | 动态导出模型的方形输入；0 = 使用模型静态尺寸，动态时回退 640 |
 | `publish_debug_image` / `publish_timing` | 调试图 / `~/timing` 开关 |
+| `debug_image_rate` | 调试图发布频率（Hz），≤ 0 表示逐帧；默认 5 |
 
 ## 验证
 
@@ -156,14 +177,33 @@ python3 tools/reference_onnx.py --model models/yolo11n.onnx \
 ```bash
 tools/bench_detector.sh --threads 0 --samples 300 --rate 200 \
   --csv benchmark/results.csv
+
+# 摄像头：device 0，30 Hz 推流，实测端到端延迟
+tools/bench_detector.sh --camera 0 --rate 30 --source-fps 30 --samples 120
 ```
+
+摄像头实流（640×480 内置摄像头，`cam2image` 推流，`~/timing` 与输出 header 时间戳）：
+
+| 配置 | 输出吞吐 | 端到端 P50 / P95 | 丢帧 |
+|---|---|---|---|
+| 调试图逐帧（旧默认） | 1.5 FPS | 241 / 369 ms | 94% |
+| 调试图 5 Hz（新默认） | 3.0 FPS | 69 / 103 ms | 70% |
+| 关闭调试图 | 4.8–9.7 FPS | 75–82 / 114 ms | 3–84%（取决于源帧率） |
+| 静态图 200 Hz 灌图 | 14.2 FPS | 86 / 120 ms | 43% |
+
+> 这台虚拟机的 Fast DDS 回环带宽是瓶颈：单个 640×480 图像消息的发布/接收占比很高，
+> 30 Hz 原始图像会把节点压到个位数 FPS。关键结论是延迟不再随队列增长（P50 约 70 ms，
+> 接近单帧计算 59 ms），即 `keep_last(1)` 的“最新帧”策略生效；要跑满 30 FPS 需要
+> 压缩图像或共享内存传输，当前未实现。
 
 ## 已知限制
 
-- 同步推理：一帧处理完才收下一帧，靠 `SensorDataQoS` 丢旧帧控制延迟，没有多流并行。
+- 同步推理：一帧处理完才收下一帧；订阅端 `keep_last(1)` 丢弃旧帧，延迟不累积，但没有多流并行。
 - 只有 CPU execution provider；CUDA 需要换 ORT GPU 构建，TensorRT 未接入。
 - 没有 rosbag 回放式集成测试与 CI；当前验证手段是单测 + Python 数值回归 + 延迟基准。
 - 分类 / OBB 的输入尺寸来自模型静态维度，动态导出时需显式给 `input_size`。
+- 未接入压缩图像（`image_transport`），大分辨率原始图像的弱网/虚拟机吞吐受限。
+- 摄像头设备号可能重新编号（`/dev/video0..2`），工具不自动探测。
 
 ## License
 

@@ -65,6 +65,8 @@ protected:
   std::string labels_path_;
   bool use_gpu_{false};
   bool publish_debug_image_{true};
+  double debug_image_rate_{5.0};  // Hz; <= 0 publishes every frame
+  int64_t last_debug_ns_{0};
   bool publish_timing_{false};
   float conf_threshold_{0.4F};
   float nms_threshold_{0.45F};

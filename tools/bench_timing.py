@@ -23,6 +23,7 @@ try:
     import rclpy
     from rclpy.node import Node
     from std_msgs.msg import Float64MultiArray
+    from vision_msgs.msg import Detection2DArray
 except ImportError as exc:  # pragma: no cover - environment check
     sys.exit(f"ROS 2 Python environment required: {exc}")
 
@@ -34,11 +35,27 @@ class TimingBench(Node):
         self.args = args
         self.rows = []
         self.stamp_ns = []
+        self.e2e_ms = []
+        self.output_stamps = []
         self.start = self.get_clock().now().nanoseconds
         self.sub = self.create_subscription(
             Float64MultiArray, args.topic, self.callback, 50)
+        if args.e2e_topic:
+            self.create_subscription(
+                Detection2DArray, args.e2e_topic, self.e2e_callback, 10)
         self.get_logger().info(
             f"waiting for {args.samples} samples on {args.topic}")
+
+    def e2e_callback(self, msg):
+        """Capture stamp in the output header -> arrival latency."""
+        if msg.header.stamp.sec == 0 and msg.header.stamp.nanosec == 0:
+            return
+        now = self.get_clock().now().nanoseconds
+        stamp = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        if now < stamp:
+            return
+        self.e2e_ms.append((now - stamp) / 1e6)
+        self.output_stamps.append(stamp)
 
     def callback(self, msg):
         values = list(msg.data)
@@ -54,10 +71,10 @@ class TimingBench(Node):
         raise KeyboardInterrupt  # leave rclpy.spin() cleanly
 
     def report(self):
-        warmup = min(self.args.warmup, len(self.rows) - 1)
-        if len(self.rows) <= warmup:
+        if len(self.rows) < 2:
             print("not enough samples to report")
             return
+        warmup = min(self.args.warmup, len(self.rows) - 1)
         stages = np.asarray(self.rows[warmup:], dtype=np.float64)
         total = stages.sum(axis=1)
 
@@ -78,6 +95,19 @@ class TimingBench(Node):
         for name, values in zip(("preprocess", "inference", "postprocess"), stages_p):
             print(f"  {name:<11} P50/P95/P99="
                   f"{values[0]:.1f}/{values[1]:.1f}/{values[2]:.1f} ms")
+
+        if len(self.e2e_ms) > warmup:
+            e2e = np.asarray(self.e2e_ms[warmup:], dtype=np.float64)
+            stamps = np.asarray(self.output_stamps[warmup:], dtype=np.float64)
+            span_s = (stamps[-1] - stamps[0]) / 1e9 if len(stamps) > 1 else 0.0
+            output_fps = (len(stamps) - 1) / span_s if span_s > 0 else 0.0
+            line = (f"  end-to-end  P50/P95/P99="
+                    f"{np.percentile(e2e, 50):.1f}/{np.percentile(e2e, 95):.1f}"
+                    f"/{np.percentile(e2e, 99):.1f} ms  output={output_fps:.1f} FPS")
+            if self.args.source_fps > 0:
+                drop = max(0.0, 1.0 - output_fps / self.args.source_fps)
+                line += f"  source={self.args.source_fps:.1f} FPS  drop={drop * 100:.0f}%"
+            print(line)
 
         if not self.args.csv:
             return
@@ -103,6 +133,9 @@ def main():
     parser.add_argument("--samples", type=int, default=300)
     parser.add_argument("--warmup", type=int, default=20)
     parser.add_argument("--csv", default="")
+    parser.add_argument("--e2e-topic", default="",
+                        help="output topic with a header for end-to-end latency")
+    parser.add_argument("--source-fps", type=float, default=0.0)
     parser.add_argument("--label", default="run")
     parser.add_argument("--timeout", type=float, default=180.0)
     args = parser.parse_args()

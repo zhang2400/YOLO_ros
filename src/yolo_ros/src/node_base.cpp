@@ -36,6 +36,7 @@ void YoloNodeBase::declare_common_parameters()
   declare_parameter("num_threads", 0);
   declare_parameter("input_size", 0);
   declare_parameter("publish_debug_image", true);
+  declare_parameter("debug_image_rate", 5.0);
   declare_parameter("publish_timing", false);
 }
 
@@ -50,6 +51,7 @@ void YoloNodeBase::load_common_parameters()
   num_threads_ = static_cast<int>(get_parameter("num_threads").as_int());
   input_size_ = static_cast<int>(get_parameter("input_size").as_int());
   publish_debug_image_ = get_parameter("publish_debug_image").as_bool();
+  debug_image_rate_ = get_parameter("debug_image_rate").as_double();
   publish_timing_ = get_parameter("publish_timing").as_bool();
 }
 
@@ -136,8 +138,10 @@ YoloNodeBase::CallbackReturn YoloNodeBase::on_activate(
   callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   rclcpp::SubscriptionOptions sub_options;
   sub_options.callback_group = callback_group_;
+  // Drop stale frames instead of queueing them: with a 25-30 Hz camera and
+  // ~70 ms inference, a deep queue only adds latency, not throughput.
   image_sub_ = create_subscription<sensor_msgs::msg::Image>(
-    "~/image_raw", rclcpp::SensorDataQoS(),
+    "~/image_raw", rclcpp::SensorDataQoS().keep_last(1),
     std::bind(&YoloNodeBase::image_callback, this, std::placeholders::_1),
     sub_options);
 
@@ -230,7 +234,16 @@ void YoloNodeBase::image_callback(
 
   cv::Mat debug_canvas;
   if (publish_debug_image_ && debug_pub_ && debug_pub_->is_activated()) {
-    debug_canvas = cv_ptr->image.clone();
+    // Debug images are for humans: publishing a 640x480 frame every inference
+    // can cost more than the inference itself on a slow DDS transport, so
+    // throttle it. debug_image_rate <= 0 restores the publish-every-frame mode.
+    const int64_t now_ns = now().nanoseconds();
+    const int64_t period_ns =
+      debug_image_rate_ > 0.0 ? static_cast<int64_t>(1e9 / debug_image_rate_) : 0;
+    if (last_debug_ns_ == 0 || period_ns == 0 || now_ns - last_debug_ns_ >= period_ns) {
+      debug_canvas = cv_ptr->image.clone();
+      last_debug_ns_ = now_ns;
+    }
   }
 
   try {
